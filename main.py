@@ -556,10 +556,10 @@ def main():
     print()
     
     # Define provider combinations
-    solver1 = LLMConfig.PROVIDER_ANTHROPIC
+    solver1 = LLMConfig.PROVIDER_OPENAI
     solver2 = LLMConfig.PROVIDER_DEEPSEEK
-    verifier1 = LLMConfig.PROVIDER_DEEPSEEK
-    verifier2 = LLMConfig.PROVIDER_ANTHROPIC
+    verifier1 = LLMConfig.PROVIDER_ANTHROPIC
+    verifier2 = LLMConfig.PROVIDER_DEEPSEEK
 
     print(f"🤖 Duo 1: {solver1} (solver) + {verifier1} (verifier)")
     print(f"🤖 Duo 2: {solver2} (solver) + {verifier2} (verifier)")
@@ -569,14 +569,14 @@ def main():
         solver_provider=solver1,
         verifier_provider=verifier1,
         pdf_mode=pdf_mode,
-        rounds=2
+        rounds=1
     )
 
     duo2 = ProblemSetSolver(
         solver_provider=solver2,
         verifier_provider=verifier2,
         pdf_mode=pdf_mode,
-        rounds=2
+        rounds=1
     )
     
     duo1.process(pdf_file_path)

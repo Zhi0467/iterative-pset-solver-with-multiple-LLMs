@@ -8,52 +8,71 @@ import io
 import base64
 
 class AdvancedPDFExtractor:
-    """Advanced PDF extraction with support for images, tables, and mathematical content."""
+    """Advanced PDF text extraction with multiple fallback methods and caching."""
     
     def __init__(self):
-        self.extraction_methods = [
+        self._extractors = [
             self._extract_with_pymupdf4llm,
             self._extract_with_pdfplumber,
             self._extract_with_pymupdf_basic
         ]
-    
-    def extract_text(self, pdf_path: str) -> str:
-        """
-        Extract text using multiple methods and return the best result.
+        self._text_cache = {}  # Cache for extracted text
+        self._max_cache_size = 50  # Maximum number of PDFs to cache
         
-        Args:
-            pdf_path: Path to the PDF file
-            
-        Returns:
-            Extracted text content
-        """
+    def extract_text(self, pdf_path: str) -> str:
+        """Extract text from PDF with caching and quality assessment."""
+        # Check if file exists
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"The file {pdf_path} was not found.")
+            
+        # Check cache first
+        if pdf_path in self._text_cache:
+            print(f"📋 Using cached text for {pdf_path}")
+            return self._text_cache[pdf_path]
+            
+        #print(f"📄 Extracting text from {pdf_path}...")
         
+        # Try each extractor and assess quality
         results = []
+        last_error = None
         
-        for method in self.extraction_methods:
+        for extractor in self._extractors:
             try:
-                text = method(pdf_path)
+                text = extractor(pdf_path)
                 if text and text.strip():
                     results.append({
-                        'method': method.__name__,
+                        'method': extractor.__name__,
                         'text': text,
-                        'length': len(text),
                         'quality_score': self._assess_quality(text)
                     })
             except Exception as e:
-                print(f"Warning: {method.__name__} failed: {e}")
+                last_error = e
+                print(f"Warning: {extractor.__name__} failed: {e}")
                 continue
-        
+                
         if not results:
+            if last_error:
+                raise last_error
             raise ValueError(f"No text could be extracted from {pdf_path}. The PDF might be image-based or corrupted.")
-        
-        # Return the result with the highest quality score
+            
+        # Get the best quality result
         best_result = max(results, key=lambda x: x['quality_score'])
         print(f"Using extraction method: {best_result['method']} (quality score: {best_result['quality_score']:.2f})")
         
+        # Cache the best result
+        if len(self._text_cache) >= self._max_cache_size:
+            oldest_key = next(iter(self._text_cache))
+            del self._text_cache[oldest_key]
+            
+        self._text_cache[pdf_path] = best_result['text']
+        print(f"✅ Text cached for {pdf_path}")
+        
         return best_result['text']
+        
+    def clear_cache(self):
+        """Clear the text extraction cache."""
+        self._text_cache.clear()
+        print("🗑️ Cleared PDF text cache")
     
     def _extract_with_pymupdf4llm(self, pdf_path: str) -> str:
         """Extract using pymupdf4llm - best for LLM processing."""

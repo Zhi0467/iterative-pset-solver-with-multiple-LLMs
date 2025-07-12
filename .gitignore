@@ -3,5 +3,7 @@
 
 # Ignore a specific folder
 outputs/
+__pycache__/
+auto_pset_solver.egg-info/
 
 .env
