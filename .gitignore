@@ -1,0 +1,7 @@
+# Ignore all PDF files
+*.pdf
+
+# Ignore a specific folder
+outputs/
+
+.env

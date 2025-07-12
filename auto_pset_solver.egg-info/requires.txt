@@ -1,0 +1,11 @@
+anthropic
+google-genai
+openai
+python-dotenv
+PyMuPDF
+PyMuPDF4LLM
+tenacity
+httpx
+requests
+pdfplumber
+Pillow
