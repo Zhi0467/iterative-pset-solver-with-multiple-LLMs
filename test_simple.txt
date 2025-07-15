@@ -1,0 +1,2 @@
+1. Simple math: 3 + 7 = ?
+2. Simple coding: Write a Python function that returns the sum of two numbers

@@ -7,8 +7,9 @@ Project-URL: Homepage, https://github.com/example/auto-pset
 Project-URL: Bug Tracker, https://github.com/example/auto-pset/issues
 Classifier: Programming Language :: Python :: 3
 Classifier: Operating System :: OS Independent
-Requires-Python: >=3.9
+Requires-Python: >=3.10
 Description-Content-Type: text/markdown
+License-File: LICENSE
 Requires-Dist: anthropic
 Requires-Dist: google-genai
 Requires-Dist: openai
@@ -20,45 +21,117 @@ Requires-Dist: httpx
 Requires-Dist: requests
 Requires-Dist: pdfplumber
 Requires-Dist: Pillow
+Requires-Dist: mcp>=1.0.0
+Requires-Dist: sympy>=1.12
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: fastmcp>=1.0.0
+Dynamic: license-file
 
-# Auto Problem Set Solver
+# Auto Pset Solver
 
-This project is a Python script that uses Large Language Models (LLMs) to automatically solve problem sets from PDF files.
+A command-line tool (`main.py`) to automatically solve problem sets (PDF files) using two iterative duos of LLMs:
 
-## Features
+1. **Duo 1**: Solver = Anthropic, Verifier = Deepseek  
+2. **Duo 2**: Solver = Deepseek, Verifier = Anthropic
 
--   **Multiple LLM Providers:** Supports Gemini, Anthropic (Claude), OpenAI (GPT), and DeepSeek.
--   **PDF Processing:** Can either send the PDF directly to a capable model or extract the text first.
--   **Iterative Solving:** Uses a multi-round process where one LLM solves the problems and another verifies the solutions.
--   **Resilient:** Automatically retries on network errors.
+By default, Duo 1 runs for **2 rounds**, and if any problems remain unsolved, Duo 2 runs for **2 rounds** as fallback.
 
-## Installation
+---
 
-This project uses `uv` for package management.
+## 🚀 Features
 
-1.  Create and activate a virtual environment:
-    ```bash
-    uv venv
-    source .venv/bin/activate
-    ```
+- **Automatic duo logic**: Duo 1 attempts all problems; Duo 2 only runs on failures.
+- **PDF modes**:
+  - `direct_upload` (default): upload the full PDF to providers supporting file ingestion.
+  - `text_extract`: extract text via `AdvancedPDFExtractor` and send as text prompts.
+- **Web-search modes**:
+  - `default`: web search enabled for verification (Anthropic + Gemini), disabled for solving.
+  - `all_enabled`, `all_disabled`, `solver_only`, `verifier_only`.
+- **Retry & backoff**: handles transient API errors.
+- **Configurable providers**: set API keys and endpoints in `LLMConfig`.
 
-2.  Install the project in editable mode, which will also install all dependencies:
-    ```bash
-    uv pip install -e .
-    ```
+---
 
-## Usage
-
-To run the script, use the following command:
+## 🎛️ Installation
 
 ```bash
-python main.py <path_to_pdf> [pdf_mode]
+pip install auto-pset
+````
+
+Or clone and install editable:
+
+```bash
+git clone https://github.com/Zhi0467/iterative-pset-solver-with-multiple-LLMs.git
+cd iterative-pset-solver-with-multiple-LLMs
+pip install -e .
 ```
 
--   `<path_to_pdf>`: The path to the PDF file containing the problem set.
--   `[pdf_mode]`: (Optional) The PDF processing mode. Can be `direct_upload` (default) or `text_extract`.
+---
 
-Example:
+## 📖 Usage
+
 ```bash
-python main.py "path/to/my_problem_set.pdf"
-``` 
+python main.py <path_to_pdf> [pdf_mode] [web_search_mode]
+```
+
+* `<path_to_pdf>`: path to your PDF problem set.
+* `[pdf_mode]`: `direct_upload` (default) or `text_extract`.
+* `[web_search_mode]`: `default` (balanced), `all_enabled`, `all_disabled`, `solver_only`, or `verifier_only`.
+
+### Examples
+
+1. **Quick run with defaults** (Duo 1 → Duo 2 if needed):
+
+   ```bash
+   python main.py hw.pdf
+   ```
+
+2. **Text-extraction mode**:
+
+   ```bash
+   python main.py hw.pdf text_extract
+   ```
+
+3. **Force all providers to search**:
+
+   ```bash
+   python main.py hw.pdf direct_upload all_enabled
+   ```
+
+4. **Disable web search completely**:
+
+   ```bash
+   python main.py hw.pdf direct_upload all_disabled
+   ```
+
+5. **Solver-only web search**:
+
+   ```bash
+   python main.py hw.pdf text_extract solver_only
+   ```
+
+> ⚠️ If after Duo 2 some problems remain unsolved, simply rerun the same command to process the leftovers.
+
+---
+
+## ⚙️ Configuration
+
+Edit `~/utils/config.py` to customize your model selection, max tokens, and temperature.
+
+Copy `~/.env.example` to `~/.env` to store your API keys. 
+
+---
+
+## 🛠️ Customization
+
+* **Change duo providers**: modify `solver1`, `verifier1`, `solver2`, `verifier2` in `main.py`.
+* **Adjust rounds**: change the `rounds=2` parameter when constructing `ProblemSetSolver` instances.
+* **Add new PDF modes**: update `PDFMode` enum and parsing logic in `main.py`.
+
+---
+
+## ⚖️ Disclaimer
+
+For **personal educational use**. Respect academic integrity and copyright.
+
+

@@ -1,3 +1,4 @@
+LICENSE
 README.md
 pyproject.toml
 auto_pset_solver.egg-info/PKG-INFO
@@ -16,3 +17,4 @@ utils/__init__.py
 utils/config.py
 utils/network_checker.py
 utils/pdf_extractor.py
+utils/sandbox.py

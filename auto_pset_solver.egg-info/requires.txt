@@ -9,3 +9,7 @@ httpx
 requests
 pdfplumber
 Pillow
+mcp>=1.0.0
+sympy>=1.12
+numpy>=1.24.0
+fastmcp>=1.0.0

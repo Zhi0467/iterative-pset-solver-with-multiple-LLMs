@@ -17,6 +17,39 @@ from httpx import ConnectError
 from anthropic._exceptions import OverloadedError
 from utils.pdf_extractor import AdvancedPDFExtractor
 from google.genai.errors import ServerError as GeminiServerError
+import requests
+from dotenv import load_dotenv
+
+# Try to import MCP client for cleanup
+try:
+    from mcp_server.client import disconnect_mcp_client
+    MCP_CLEANUP_AVAILABLE = True
+except ImportError:
+    MCP_CLEANUP_AVAILABLE = False
+    disconnect_mcp_client = None
+
+# Load environment variables from .env file
+load_dotenv()
+
+USER_KEY = os.getenv("PUSHOVER_USER_KEY")
+APP_TOKEN = os.getenv("PUSHOVER_APP_TOKEN")
+
+def send_pushover_notification(title, message):
+    if not USER_KEY or not APP_TOKEN:
+        print("Pushover USER_KEY or APP_TOKEN not set in environment. Skipping notification.")
+        return
+    url = "https://api.pushover.net/1/messages.json"
+    data = {
+        "token": APP_TOKEN,
+        "user": USER_KEY,
+        "title": title,
+        "message": message
+    }
+    try:
+        response = requests.post(url, data=data)
+        response.raise_for_status()  # raises an error if the request failed
+    except Exception as e:
+        print(f"Failed to send pushover notification: {e}")
 
 class PDFMode(Enum):
     """Enum for PDF processing modes."""
@@ -103,8 +136,17 @@ class ProblemSetSolver:
             
             if is_pdf_path and solver_supports_pdf:
                 prompt = """
-                You are an expert mathematician, scientist, and problem solver.
-                Please solve the problems from the provided PDF with detailed, step-by-step explanations for each problem.
+                You are an expert mathematician, programmer, scientist, and problem solver.
+                
+                INSTRUCTIONS:
+                1. Read through the entire PDF to identify ALL problems/exercises, including both mathematical and coding problems.
+                2. For EACH problem found, provide a complete solution
+                3. For coding problems, implement working code with proper testing using bash tools if available.
+                
+                FORMAT: Start each solution with "## Exercise X:" where X is the problem number.
+                
+                Please solve ALL problems from the provided PDF with detailed, step-by-step explanations for each problem.
+                Make sure to identify each individual problem/exercise and provide a complete solution for every single one.
                 Output the solutions in well-formatted Markdown.
                 """
                 pdf_path_arg = str(input_data)
@@ -118,7 +160,13 @@ class ProblemSetSolver:
 
                 prompt = f"""
                 You are an expert mathematician, scientist, and problem solver.
-                Please solve the following problem set with detailed, step-by-step explanations for each problem.
+                Please solve ALL problems from the following problem set with detailed, step-by-step explanations for each problem.
+                Make sure to identify each individual problem/exercise and provide a complete solution for every single one.
+                Include both mathematical problems and coding problems if present.
+                FORMAT: Start each solution with "## Exercise X:" where X is the problem number.
+                
+                Please solve ALL problems from the provided PDF with detailed, step-by-step explanations for each problem.
+                Make sure to identify each individual problem/exercise and provide a complete solution for every single one.
                 Output the solutions in well-formatted Markdown.
                 
                 ## Problem Set:
@@ -133,14 +181,82 @@ class ProblemSetSolver:
                 {hints}
                 """
             
-            prompt += """
-            Pay special attention to:
-            - Mathematical notation and formulas
-            - Matrix operations and calculations
-            - Step-by-step algebraic manipulations
-            - Clear explanations of each step
-            - Clear presentation of answer after reasoning
-            """
+            # Add detailed tool instructions only if the provider supports
+            # code execution or MCP tools. Otherwise, keep the prompt simpler.
+            if (self.solver.supports_code_execution or self.solver.supports_mcp) and self.solver.get_name() == LLMConfig.PROVIDER_ANTHROPIC:
+                prompt += """
+                ## Problem-Specific Approaches
+
+                ### For Mathematical Problems:
+                - Use MCP math tools for calculations when helpful
+                - Show key steps clearly and concisely, and present final answers prominently
+
+                ### For Coding Problems:
+                **EFFICIENT WORKFLOW:**
+                1. **Plan First**: Analyze the problem requirements briefly
+                2. **Code Efficiently**: Write clean, working code using bash tools if available
+                3. **Test Once**: Verify the solution works correctly with unit testing scripts
+                4. **Present Cleanly**: Include only the final, working solution
+
+                **CODING STANDARDS:**
+                - Write clean, readable code with appropriate comments
+                - Be modular if the problem is complicated and use readable variable names.
+                - Include only essential functionality (avoid over-engineering)
+                - Present the final solution without showing debugging steps
+
+                ## Output Format Standards
+
+                ### Problem Structure:
+                ```markdown
+                ## Exercise [Number]: [Brief Problem Description]
+
+                ### Solution:
+                [Concise explanation of approach]
+
+                [Working code or mathematical solution]
+
+                ### Answer: [Final result prominently displayed]
+                ```
+
+                ## Quality Standards
+
+                ### DO:
+                - Be concise and direct
+                - Use tools for verification, not for showing work
+                - Present clean, final solutions
+                - Test code before presenting it
+
+                ### DON'T:
+                - Show debugging steps or failed attempts
+                - Include raw tool output in final response
+                - Over-engineer simple solutions
+                - Provide multiple variations unless specifically requested
+                - Include excessive explanatory text for straightforward problems
+
+                ## Sandbox Environment Limitations
+                
+                **Available Commands in Sandbox:**
+                - `python3` - Python interpreter
+                - `echo`, `cat`, `ls`, `grep`, `sort`, `head`, `tail`, `wc` - Basic utilities
+                - File operations: `>`, `>>`, `|`, `&&`
+
+                **NOT Available in Sandbox:**
+                - `pdflatex`, `latex` - LaTeX compilation (generate LaTeX code only, don't compile)
+                - `apt-get`, `yum`, `brew` - Package managers
+                - `sudo`, `docker` - System administration tools
+
+                ## Tool Usage Efficiency
+                
+                **MINIMIZE TOOL CALLS:**
+                - Plan your approach before using tools
+                - Combine multiple operations in single bash commands where possible
+                - Avoid repeated identical commands
+                - Use tools strategically for verification, not exploration
+
+                **CRITICAL: Solve ALL problems in the PDF efficiently. Quality over quantity.**
+                **REMEMBER: Tools are for YOUR internal use only. Present clean, final solutions.**
+                **IMPORTANT: Don't attempt to compile LaTeX or install packages in sandbox.**
+                """
             
             try:
                 print(f"Processing {'PDF' if pdf_path_arg else 'text'} input...")
@@ -193,6 +309,9 @@ class ProblemSetSolver:
                 prompt = f"""
                 ### Original Problem Set
                 {final_input_data}
+
+                ### Proposed Solutions
+                {solution_text}
                 """
                 
             if hints:
@@ -202,21 +321,82 @@ class ProblemSetSolver:
                 Please incorporate these hints into your review:
                 {hints}
                 """
+            if (self.verifier.supports_code_execution or self.verifier.supports_mcp) and self.verifier.get_name() == LLMConfig.PROVIDER_ANTHROPIC:
+                prompt += f"""
+                ## Verification Approach
 
-            prompt += f"""
-            Identify any mistakes in the solutions, ranging from simple calculation errors to flawed reasoning.
-            If you find mistakes, list them clearly and provide a concise 'fix action' for each one.
-            If there are no mistakes, simply respond with "No mistakes found."
+                ### For Mathematical Problems:
+                - Use MCP math tools to verify calculations
+                - Check mathematical reasoning and logic
+                - Verify that final answers are correct
+                - Check for proper mathematical notation and formatting
 
-            ### Proposed Solutions
-            {solution_text}
+                ### For Coding Problems:
+                **VERIFICATION WORKFLOW:**
+                1. **Code Analysis**: Review the logic and algorithm
+                2. **Execution Testing**: Use bash tools to test the code
+                3. **Edge Case Testing**: Verify with different inputs
+                4. **Quality Assessment**: Check code style and efficiency
 
-            If there are no mistakes in any of the problems, add "final answer to all problems: no mistakes found." to the end of your response.
-            Output the solutions in well-formatted Markdown. 
-            ONLY if there are no mistakes in any of the problems, add "final answer to all problems: no mistakes found." to the end of your response.
-            OMIT THE VERIFICATION OF THE CORRECTLY SOLVED PROBLEMS. ONLY OUTPUT YOUR VERIFICATION OF THE MISTAKES.
-            Please begin your review.
-            """
+                ## Review Output Format
+
+                ### For Correct Solutions:
+                ```markdown
+                ## Exercise [Number]: ✅ VERIFIED CORRECT
+                ```
+
+                ### For Incorrect Solutions:
+                ```markdown
+                ## Exercise [Number]: ❌ ISSUES FOUND
+
+                ### Issues Identified:
+                1. **[Issue Type]**: [Specific problem description]
+                - **Fix Action**: [Specific correction needed]
+
+                ### Verification Evidence:
+                [Tool output or calculation]
+
+                **INSTRUCTIONS:**
+                1. Systematically verify all solutions.
+                2. Use tools to check code and calculations.
+                3. Give concise, actionable feedback for any issues.
+
+                **OUTPUT:**
+                - If all correct: put "final answer to all problems: no mistakes found." at the end of your response.
+                - If issues: List each issue with fix action and supporting evidence.
+
+                Begin your review.
+                """
+            else:
+                prompt += """
+                ## Review Output Format
+
+                ### For Correct Solutions:
+                ```markdown
+                ## Exercise [Number]: ✅ VERIFIED CORRECT
+                ```
+
+                ### For Incorrect Solutions:
+                ```markdown
+                ## Exercise [Number]: ❌ ISSUES FOUND
+
+                ### Issues Identified:
+                1. **[Issue Type]**: [Specific problem description]
+                - **Fix Action**: [Specific correction needed]
+
+                ### Verification Evidence:
+                [Tool output or calculation]
+
+                **INSTRUCTIONS:**
+                1. Systematically verify all solutions.
+                2. Give concise, actionable feedback for any issues.
+
+                **OUTPUT:**
+                - If all correct: put "final answer to all problems: no mistakes found." at the end of your response.
+                - If issues: List each issue with fix action and supporting evidence.
+
+                Begin your review.
+                """
             
             try:
                 print(f"Verifying solutions...")
@@ -285,7 +465,7 @@ class ProblemSetSolver:
             return self.solver.generate(prompt)
         return _regenerate()
 
-    def apply_fixes_and_generate_latex(self, original_input: Union[str, List[str]], solution_text: str, fix_instructions: str, is_pdf_path: bool = False) -> str:
+    def apply_fixes_and_generate_latex(self, original_input: Union[str, List[str]], solution_text: str, fix_instructions: Optional[str] = None, format_instructions: Optional[str] = None, is_pdf_path: bool = False) -> str:
         """Prompts the solver LLM to apply fixes and generate final LaTeX output."""
         @self._get_retry_decorator()
         def _generate_latex():
@@ -331,6 +511,9 @@ class ProblemSetSolver:
             ### Fix suggestions
             {fix_instructions}
 
+            ### Formatting instructions
+            {format_instructions}
+
             Generate the corrected solutions in a single LaTeX document. Don't omit details, preserve the correct step-by-step process in the original solutions and correct the wrong ones.
             """
             if pdf_path_arg:
@@ -338,7 +521,7 @@ class ProblemSetSolver:
             return self.solver.generate(prompt)
         return _generate_latex()
 
-    def convert_markdown_to_latex(self, original_input: Union[str, List[str]], markdown_text: str, is_pdf_path: bool = False) -> str:
+    def convert_markdown_to_latex(self, original_input: Union[str, List[str]], markdown_text: str, format_instructions: Optional[str] = None, is_pdf_path: bool = False) -> str:
         """Prompts an LLM to convert Markdown to LaTeX."""
         @self._get_retry_decorator()
         def _convert():
@@ -374,9 +557,13 @@ class ProblemSetSolver:
             - Matrices (using bmatrix, pmatrix, etc.)
             - Fractions, subscripts, superscripts
             - Aligned equations where appropriate
+            - don't over use bold font.
 
             ### Markdown Content
             {markdown_text}
+
+            ### Formatting instructions
+            {format_instructions}
 
             Generate a complete LaTeX document.
             """
@@ -421,6 +608,12 @@ class ProblemSetSolver:
                 print("📋 Found hints.md, incorporating it into the initial prompt.")
                 with open("hints.md", "r", encoding="utf-8") as f:
                     hints = f.read()
+            format_instructions = None
+            if os.path.exists("format.md"):
+                print("📋 Found format.md, incorporating it into the initial prompt.")
+                with open("format.md", "r", encoding="utf-8") as f:
+                    format_instructions = f.read()
+
             count = 0
             for i in range(self.rounds):
                 print(f"💤 Entering round {i}...")
@@ -461,11 +654,11 @@ class ProblemSetSolver:
             # Step 3: Check for mistakes and generate final output
             if "final answer to all problems: no mistakes found" in review.lower():
                 print("👍 No mistakes found. Converting Markdown to LaTeX.")
-                final_latex = self.convert_markdown_to_latex(input_data, draft_md, is_pdf_path)
+                final_latex = self.convert_markdown_to_latex(input_data, draft_md, format_instructions, is_pdf_path)
                 self.solve_complete = True
             else:
                 print("⚠️ Mistakes were found. Applying fixes...")
-                final_latex = self.apply_fixes_and_generate_latex(input_data, draft_md, review, is_pdf_path)
+                final_latex = self.apply_fixes_and_generate_latex(input_data, draft_md, review, format_instructions, is_pdf_path)
 
             self.save_output("outputs/final_solutions.tex", final_latex)
             if self.solve_complete:
@@ -556,10 +749,10 @@ def main():
     print()
     
     # Define provider combinations
-    solver1 = LLMConfig.PROVIDER_OPENAI
-    solver2 = LLMConfig.PROVIDER_DEEPSEEK
+    solver1 = LLMConfig.PROVIDER_ANTHROPIC
+    solver2 = LLMConfig.PROVIDER_ANTHROPIC
     verifier1 = LLMConfig.PROVIDER_ANTHROPIC
-    verifier2 = LLMConfig.PROVIDER_DEEPSEEK
+    verifier2 = LLMConfig.PROVIDER_ANTHROPIC
 
     print(f"🤖 Duo 1: {solver1} (solver) + {verifier1} (verifier)")
     print(f"🤖 Duo 2: {solver2} (solver) + {verifier2} (verifier)")
@@ -576,7 +769,7 @@ def main():
         solver_provider=solver2,
         verifier_provider=verifier2,
         pdf_mode=pdf_mode,
-        rounds=1
+        rounds=2
     )
     
     duo1.process(pdf_file_path)
@@ -595,4 +788,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        send_pushover_notification("Auto Pset", "Problems solving completed!")
+    except Exception as e:
+        send_pushover_notification("Auto Pset", f"Problems solving failed: {e}")
+    finally:
+        # Cleanup MCP client singleton on exit
+        if MCP_CLEANUP_AVAILABLE and disconnect_mcp_client:
+            disconnect_mcp_client()
+            print("🗑️ Cleaned up MCP client connection")

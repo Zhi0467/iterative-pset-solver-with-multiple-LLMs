@@ -41,7 +41,7 @@ class DeepSeekProvider(BaseLLMProvider):
             raise Exception(f"DeepSeek API error: {e}")
     
     def get_name(self) -> str:
-        return "DeepSeek R1"
+        return f"DeepSeek ({self.model})"
     
     def get_available_models(self) -> Dict[str, Any]:
         """Returns a dictionary of available models for DeepSeek."""

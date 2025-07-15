@@ -7,7 +7,7 @@ name = "auto-pset-solver"
 version = "0.1.0"
 description = "A Python script to automatically solve problem sets from PDF files using LLMs."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -24,7 +24,11 @@ dependencies = [
     "httpx",
     "requests",
     "pdfplumber",
-    "Pillow"
+    "Pillow",
+    "mcp>=1.0.0",
+    "sympy>=1.12",
+    "numpy>=1.24.0",
+    "fastmcp>=1.0.0"
 ]
 
 [tool.setuptools.packages.find]

@@ -73,7 +73,7 @@ class OpenAIProvider(BaseLLMProvider):
             raise Exception(f"OpenAI API error: {e}")
     
     def get_name(self) -> str:
-        return "OpenAI (GPT-4o)"
+        return f"OpenAI ({self.model})"
     
     def clear_file_cache(self):
         """Clear cached file IDs."""

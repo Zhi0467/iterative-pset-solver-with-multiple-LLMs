@@ -138,7 +138,7 @@ class GeminiProvider(BaseLLMProvider):
     # Metadata
     # ---------------------------------------------------------------------
     def get_name(self) -> str:
-        return "Google (Gemini 2.5 Pro)"
+        return f"Google ({self.model})"
     
     def clear_file_cache(self):
         """Clear cached file content."""
