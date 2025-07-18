@@ -45,7 +45,7 @@ class LLMConfig:
     # Default web search settings for each provider
     DEFAULT_WEB_SEARCH = {
         PROVIDER_OPENAI: False,      # OpenAI doesn't support web search yet
-        PROVIDER_ANTHROPIC: False,    # Anthropic supports web search
+        PROVIDER_ANTHROPIC: True,    # Anthropic supports web search
         PROVIDER_GEMINI: False,       # Gemini supports Google Search grounding
         PROVIDER_DEEPSEEK: False     # DeepSeek doesn't support web search yet
     }
@@ -53,7 +53,7 @@ class LLMConfig:
     # Default code execution settings for each provider
     DEFAULT_CODE_EXECUTION = {
         PROVIDER_OPENAI: False,      # OpenAI doesn't support direct code execution
-        PROVIDER_ANTHROPIC: False,    # Anthropic doesn't support direct code execution
+        PROVIDER_ANTHROPIC: True,    # Anthropic supports direct code execution
         PROVIDER_GEMINI: False,      # Gemini doesn't support direct code execution
         PROVIDER_DEEPSEEK: False     # DeepSeek doesn't support direct code execution
     }
@@ -83,7 +83,7 @@ class LLMConfig:
                 "max_tokens": 32768,
                 "enable_web_search": self.DEFAULT_WEB_SEARCH[self.PROVIDER_OPENAI],
                 "enable_code_execution": self.DEFAULT_CODE_EXECUTION[self.PROVIDER_OPENAI],
-                "enable_mcp": self.DEFAULT_MCP[self.PROVIDER_OPENAI]
+                "enable_mcp": self.DEFAULT_MCP[self.PROVIDER_OPENAI],
             },
             self.PROVIDER_ANTHROPIC: {
                 "model": self.DEFAULT_MODELS[self.PROVIDER_ANTHROPIC],
@@ -101,7 +101,7 @@ class LLMConfig:
                 "max_tokens": 32768,
                 "enable_web_search": self.DEFAULT_WEB_SEARCH[self.PROVIDER_GEMINI],
                 "enable_code_execution": self.DEFAULT_CODE_EXECUTION[self.PROVIDER_GEMINI],
-                "enable_mcp": self.DEFAULT_MCP[self.PROVIDER_GEMINI]
+                "enable_mcp": self.DEFAULT_MCP[self.PROVIDER_GEMINI],
             },
             self.PROVIDER_DEEPSEEK: {
                 "model": self.DEFAULT_MODELS[self.PROVIDER_DEEPSEEK],
@@ -109,7 +109,7 @@ class LLMConfig:
                 "max_tokens": 16384,
                 "enable_web_search": self.DEFAULT_WEB_SEARCH[self.PROVIDER_DEEPSEEK],
                 "enable_code_execution": self.DEFAULT_CODE_EXECUTION[self.PROVIDER_DEEPSEEK],
-                "enable_mcp": self.DEFAULT_MCP[self.PROVIDER_DEEPSEEK]
+                "enable_mcp": self.DEFAULT_MCP[self.PROVIDER_DEEPSEEK],
             }
         }
         
@@ -132,6 +132,11 @@ class LLMConfig:
     def get_provider_config(self, provider: str) -> Dict[str, Any]:
         """Get configuration for a provider."""
         return self.provider_configs.get(provider, {}).copy()
+
+    # Backward compatibility alias used in tests
+    def get_llm_config(self, provider: str) -> Dict[str, Any]:
+        """Alias for get_provider_config to maintain legacy API used in tests."""
+        return self.get_provider_config(provider)
 
     def set_provider_config(self, provider: str, config: Dict[str, Any]):
         """Update configuration for a provider."""

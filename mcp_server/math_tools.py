@@ -15,27 +15,28 @@ import numpy as np
 # Initialize the MCP server
 mcp = FastMCP("Math Tools Server")
 
-@mcp.tool()
-def add(a: float, b: float) -> float:
-    """Add two numbers together."""
-    return a + b
-
-@mcp.tool()
-def subtract(a: float, b: float) -> float:
-    """Subtract one number from another."""
-    return a - b
-
-@mcp.tool()
-def multiply(a: float, b: float) -> float:
-    """Multiply two numbers."""
-    return a * b
-
-@mcp.tool()
-def divide(a: float, b: float) -> float:
-    """Divide one number by another."""
-    if b == 0:
-        raise ValueError("Cannot divide by zero")
-    return a / b
+# No longer needed - simple arithmetic should be handled by the LLM directly
+# @mcp.tool()
+# def add(a: float, b: float) -> float:
+#     """Add two numbers together."""
+#     return a + b
+#
+# @mcp.tool()
+# def subtract(a: float, b: float) -> float:
+#     """Subtract one number from another."""
+#     return a - b
+#
+# @mcp.tool()
+# def multiply(a: float, b: float) -> float:
+#     """Multiply two numbers."""
+#     return a * b
+#
+# @mcp.tool()
+# def divide(a: float, b: float) -> float:
+#     """Divide one number by another."""
+#     if b == 0:
+#         raise ValueError("Cannot divide by zero")
+#     return a / b
 
 @mcp.tool()
 def power(base: float, exponent: float) -> float:
@@ -94,15 +95,8 @@ def permutation(n: int, r: int) -> int:
         raise ValueError("Invalid values for permutation")
     return math.perm(n, r)
 
-@mcp.tool()
-def evaluate_expression(expression: str) -> float:
-    """Safely evaluate a mathematical expression."""
-    try:
-        # Use sympy for safe evaluation
-        result = sp.sympify(expression).evalf()
-        return float(result)
-    except Exception as e:
-        raise ValueError(f"Invalid expression: {e}")
+# evaluate_expression removed - simple expressions should be handled by the LLM directly
+# Complex expressions should use specific tools like solve_equation, differentiate, integrate, etc.
 
 @mcp.tool()
 def solve_equation(equation: str, variable: str = "x") -> List[str]:
