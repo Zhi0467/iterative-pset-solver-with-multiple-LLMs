@@ -25,6 +25,8 @@ Requires-Dist: mcp>=1.0.0
 Requires-Dist: sympy>=1.12
 Requires-Dist: numpy>=1.24.0
 Requires-Dist: fastmcp>=1.0.0
+Requires-Dist: matplotlib
+Requires-Dist: pytest
 Dynamic: license-file
 
 # Auto Pset Solver

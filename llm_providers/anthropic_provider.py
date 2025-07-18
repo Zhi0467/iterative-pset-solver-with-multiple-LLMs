@@ -275,6 +275,7 @@ class AnthropicProvider(BaseLLMProvider):
                     print(f"🔧 Registered {len(tools)} tools for {self.get_name()}")
                 web_search_attempted = self.enable_web_search and self._web_search_available
                 
+                message_params["stream"] = False  # default non-streaming
                 # For non-proxy mode with PDFs, use the beta API
                 if pdf_path and not self.proxy_mode:
                     message_params["betas"] = ["files-api-2025-04-14"]
@@ -282,20 +283,58 @@ class AnthropicProvider(BaseLLMProvider):
                 else:
                     # For proxy mode or text-only, use the standard API
                     message = self.client.messages.create(**message_params)
-                
+
                 # Handle tool use conversation if needed
                 return self._handle_tool_use_conversation(message, message_params, pdf_path)
-                
             except Exception as e:
-                error_str = str(e).lower()
-                if any(keyword in error_str for keyword in ['connect', 'timeout', 'network', 'dns']):
-                    print(f"⚠️ Web search failed due to connectivity issue: {e}")
-                    print("🔄 Retrying without web search...")
-                    # Remove web search tools and continue to fallback
-                    message_params.pop("tools", None)
-                else:
-                    # Re-raise non-connectivity errors
-                    raise
+                # Some newer Anthropic SDK versions raise an exception for long / large
+                # requests and recommend using streaming mode instead. In that case we
+                # transparently retry the same request with streaming enabled and
+                # collect the streamed content before returning it so that the rest
+                # of the pipeline can keep working without changes.
+                err_msg = str(e).lower()
+                if "streaming is strongly recommended" in err_msg or "with_streaming_response" in err_msg or "long-requests" in err_msg:
+                    print("⚠️ Large request detected – retrying with streaming mode enabled ...")
+                    # Enable streaming mode and retry
+                    message_params["stream"] = True
+                    try:
+                        if pdf_path and not self.proxy_mode:
+                            message_params["betas"] = ["files-api-2025-04-14"]
+                            stream = self.client.beta.messages.create(**message_params)
+                        else:
+                            stream = self.client.messages.create(**message_params)
+
+                        # Collect streamed text content
+                        collected_text: List[str] = []
+                        try:
+                            # Prefer the high-level helper if available (Anthropic SDK ≥0.25)
+                            if hasattr(stream, "text_stream"):
+                                for chunk in stream.text_stream:
+                                    collected_text.append(chunk)
+                            else:
+                                # Generic fallback: inspect each event object
+                                for event in stream:
+                                    # Text content may live at event.text or event.delta.text
+                                    text_piece: Optional[str] = None
+                                    if hasattr(event, "text") and event.text:
+                                        text_piece = event.text
+                                    elif hasattr(event, "delta") and getattr(event.delta, "text", None):
+                                        text_piece = event.delta.text  # type: ignore
+                                    if text_piece:
+                                        collected_text.append(text_piece)
+                        finally:
+                            # Ensure stream is fully consumed / closed
+                            if hasattr(stream, "close"):
+                                try:
+                                    stream.close()
+                                except Exception:
+                                    pass
+                        return "".join(collected_text)
+                    except Exception as stream_err:
+                        print(f"❌ Streaming retry failed: {stream_err}")
+                        raise stream_err
+                # Re-raise any unrelated errors
+                raise
         
         # Fallback: Generate without web search
         if web_search_attempted:
@@ -303,16 +342,53 @@ class AnthropicProvider(BaseLLMProvider):
         elif self.enable_web_search and not self._web_search_available:
             print("📝 Generating response without web search (connectivity unavailable)")
         
-        # For non-proxy mode with PDFs, use the beta API
-        if pdf_path and not self.proxy_mode:
-            message_params["betas"] = ["files-api-2025-04-14"]
-            message = self.client.beta.messages.create(**message_params)
-        else:
-            # For proxy mode or text-only, use the standard API
-            message = self.client.messages.create(**message_params)
-        
-        # Handle tool use conversation if needed (fallback might still have tools)
-        return self._handle_tool_use_conversation(message, message_params, pdf_path)
+        try:
+            if pdf_path and not self.proxy_mode:
+                message_params["betas"] = ["files-api-2025-04-14"]
+                message = self.client.beta.messages.create(**message_params)
+            else:
+                # For proxy mode or text-only, use the standard API
+                message = self.client.messages.create(**message_params)
+
+            # Handle tool use conversation if needed (fallback might still have tools)
+            return self._handle_tool_use_conversation(message, message_params, pdf_path)
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "streaming is strongly recommended" in err_msg or "with_streaming_response" in err_msg or "long-requests" in err_msg:
+                print("⚠️ Large request detected in fallback – retrying with streaming mode enabled ...")
+                message_params["stream"] = True
+                try:
+                    if pdf_path and not self.proxy_mode:
+                        message_params["betas"] = ["files-api-2025-04-14"]
+                        stream = self.client.beta.messages.create(**message_params)
+                    else:
+                        stream = self.client.messages.create(**message_params)
+
+                    collected_text: List[str] = []
+                    try:
+                        if hasattr(stream, "text_stream"):
+                            for chunk in stream.text_stream:
+                                collected_text.append(chunk)
+                        else:
+                            for event in stream:
+                                text_piece: Optional[str] = None
+                                if hasattr(event, "text") and event.text:
+                                    text_piece = event.text
+                                elif hasattr(event, "delta") and getattr(event.delta, "text", None):
+                                    text_piece = event.delta.text  # type: ignore
+                                if text_piece:
+                                    collected_text.append(text_piece)
+                    finally:
+                        if hasattr(stream, "close"):
+                            try:
+                                stream.close()
+                            except Exception:
+                                pass
+                    return "".join(collected_text)
+                except Exception as stream_err:
+                    print(f"❌ Streaming retry failed in fallback: {stream_err}")
+                    raise stream_err
+            raise
     
     def _handle_tool_use_conversation(self, message, message_params, pdf_path):
         """Handle tool use conversation flow properly."""

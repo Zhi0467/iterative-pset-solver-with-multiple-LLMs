@@ -45,7 +45,7 @@ class LLMConfig:
     # Default web search settings for each provider
     DEFAULT_WEB_SEARCH = {
         PROVIDER_OPENAI: False,      # OpenAI doesn't support web search yet
-        PROVIDER_ANTHROPIC: True,    # Anthropic supports web search
+        PROVIDER_ANTHROPIC: False,    # Anthropic supports web search
         PROVIDER_GEMINI: False,       # Gemini supports Google Search grounding
         PROVIDER_DEEPSEEK: False     # DeepSeek doesn't support web search yet
     }
@@ -53,7 +53,7 @@ class LLMConfig:
     # Default code execution settings for each provider
     DEFAULT_CODE_EXECUTION = {
         PROVIDER_OPENAI: False,      # OpenAI doesn't support direct code execution
-        PROVIDER_ANTHROPIC: True,    # Anthropic supports computer use for code execution
+        PROVIDER_ANTHROPIC: False,    # Anthropic doesn't support direct code execution
         PROVIDER_GEMINI: False,      # Gemini doesn't support direct code execution
         PROVIDER_DEEPSEEK: False     # DeepSeek doesn't support direct code execution
     }
@@ -61,7 +61,7 @@ class LLMConfig:
     # Default MCP settings for each provider
     DEFAULT_MCP = {
         PROVIDER_OPENAI: False,      # OpenAI doesn't support MCP integration yet
-        PROVIDER_ANTHROPIC: True,    # Anthropic can integrate with MCP tools
+        PROVIDER_ANTHROPIC: False,    # Anthropic can integrate with MCP tools
         PROVIDER_GEMINI: False,      # Gemini doesn't support MCP integration yet
         PROVIDER_DEEPSEEK: False     # DeepSeek doesn't support MCP integration yet
     }
@@ -79,8 +79,8 @@ class LLMConfig:
         self.provider_configs = {
             self.PROVIDER_OPENAI: {
                 "model": self.DEFAULT_MODELS[self.PROVIDER_OPENAI],
-                "temperature": 0.1,
-                "max_tokens": 16384,
+                "temperature": 0.3,
+                "max_tokens": 32768,
                 "enable_web_search": self.DEFAULT_WEB_SEARCH[self.PROVIDER_OPENAI],
                 "enable_code_execution": self.DEFAULT_CODE_EXECUTION[self.PROVIDER_OPENAI],
                 "enable_mcp": self.DEFAULT_MCP[self.PROVIDER_OPENAI]
