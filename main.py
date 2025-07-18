@@ -48,7 +48,7 @@ def validate_environment() -> None:
         status = "✅" if has_key else "❌"
         print(f"{status} {provider}")
     print()
-
+    
 def main():
     """Main entry point."""
     args = parse_args()

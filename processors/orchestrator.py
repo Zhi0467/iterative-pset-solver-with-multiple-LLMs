@@ -5,7 +5,7 @@ It analyzes PDFs, creates execution plans, and configures the parallel processor
 
 import os
 import json
-from typing import TypedDict, List, Dict, Any, Optional
+from typing import TypedDict, List
 from dataclasses import dataclass
 from enum import Enum
 
@@ -40,7 +40,7 @@ class PDFAnalysis:
     requires_current_info: bool
     has_code: bool
     has_math: bool
-    has_theory: bool
+    has_figures: bool
     word_count: int
 
 class ExecutionPlan(TypedDict):
@@ -135,7 +135,7 @@ CRITICAL: Ensure your output is a single, valid JSON object and nothing else.
         4. requires_current_info: Boolean, true if problems require current/recent information
         5. has_code: Boolean, true if any problems involve coding
         6. has_math: Boolean, true if any problems involve mathematical calculations
-        7. has_theory: Boolean, true if any problems involve theoretical concepts
+        7. has_figures: Boolean, true if any problems involve figures, such as a function graph, a table, etc.
         8. word_count: Estimated word count of the problem set
         
         Return ONLY the JSON object, no other text.
@@ -148,7 +148,7 @@ CRITICAL: Ensure your output is a single, valid JSON object and nothing else.
             "requires_current_info": false,
             "has_code": true,
             "has_math": true,
-            "has_theory": true,
+            "has_figures": true,
             "word_count": 2500
         }}
         """
@@ -178,7 +178,7 @@ CRITICAL: Ensure your output is a single, valid JSON object and nothing else.
             "requires_current_info": {str(analysis.requires_current_info).lower()},
             "has_code": {str(analysis.has_code).lower()},
             "has_math": {str(analysis.has_math).lower()},
-            "has_theory": {str(analysis.has_theory).lower()},
+            "has_figures": {str(analysis.has_figures).lower()},
             "word_count": {analysis.word_count}
         }}
         ```
@@ -187,8 +187,9 @@ CRITICAL: Ensure your output is a single, valid JSON object and nothing else.
 
         1. Provider Duo Selection:
            - For math/physics: prefer ("gemini", "anthropic")
-           - For coding/algorithms: prefer ("anthropic", "openai")
-           - For mixed content: use ("anthropic", "gemini")
+           - For mixed content/coding: use ("anthropic", "gemini")
+           - If has_figures is False: use ("gemini", "deepseek")
+           - For simple tasks, use ("openai", "openai")
 
         2. Rounds:
            - High School: 1 round
@@ -244,7 +245,7 @@ CRITICAL: Ensure your output is a single, valid JSON object and nothing else.
                     requires_current_info=data.get('requires_current_info', False),
                     has_code=data.get('has_code', True),
                     has_math=data.get('has_math', True),
-                    has_theory=data.get('has_theory', True),
+                    has_figures=data.get('has_figures', True),
                     word_count=data.get('word_count', 0)
                 )
             except (json.JSONDecodeError, ValueError) as e:
@@ -269,7 +270,7 @@ CRITICAL: Ensure your output is a single, valid JSON object and nothing else.
             requires_current_info=True,
             has_code=True,
             has_math=True,
-            has_theory=True,
+            has_figures=True,
             word_count=0
         )
     
@@ -287,7 +288,13 @@ CRITICAL: Ensure your output is a single, valid JSON object and nothing else.
             try:
                 print(f"  Attempt {attempt + 1} of {max_retries}...")
                 response = self.strategist_llm.generate(prompt)
-                plan = json.loads(response)
+                safe_response = response.strip()
+                if safe_response.lower().startswith('```'):
+                    # find first newline after the opening fence and last fence
+                    safe_response = safe_response.split('\n', 1)[-1]
+                    if safe_response.endswith('```'):
+                        safe_response = safe_response[:-3]
+                plan = json.loads(safe_response)
 
                 if not plan or 'pdf_path' not in plan:
                     raise ValueError("Received incomplete or empty plan from LLM.")
