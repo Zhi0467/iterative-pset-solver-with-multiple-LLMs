@@ -15,6 +15,7 @@ from pathlib import Path
 import time
 import signal
 from contextlib import contextmanager
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -132,10 +133,14 @@ class CodeExecutionSandbox:
         Returns:
             Tuple of (is_valid, error_message)
         """
+        # Use word boundary matching to avoid false positives (e.g., 'su' in 'result')
         for tool in self.unavailable_tools:
-            if tool in code:
-                return False, f"Tool '{tool}' is not available in sandbox environment. " \
-                             f"Sandbox supports: python3, echo, cat, ls, grep, sort, head, tail, wc, etc."
+            pattern = rf"\b{re.escape(tool)}\b"
+            if re.search(pattern, code):
+                return False, (
+                    f"Tool '{tool}' is not available in sandbox environment. "
+                    "Sandbox supports: python3, echo, cat, ls, grep, sort, head, tail, wc, etc."
+                )
         return True, ""
     
     def validate_code(self, code: str, language: str) -> tuple[bool, str]:
@@ -400,8 +405,14 @@ class DockerSandbox:
             
             execution_time = time.time() - start_time
             
+            # If Docker execution fails, fallback to local sandbox execution for robustness
+            if result.returncode != 0:
+                fallback = CodeExecutionSandbox(timeout=self.timeout)
+                print("⚠️ Docker execution failed, falling back to local sandbox")
+                return fallback.execute_code(code, language, **kwargs)
+
             return {
-                "success": result.returncode == 0,
+                "success": True,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
                 "return_code": result.returncode,

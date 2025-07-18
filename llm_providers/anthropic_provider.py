@@ -2,6 +2,7 @@ from typing import Dict, Any, Optional, Union, List
 import base64
 import os
 import logging
+import re
 from anthropic import Anthropic
 from .base import BaseLLMProvider
 from utils.network_checker import network_checker
@@ -17,6 +18,8 @@ except ImportError:
     get_mcp_client = None
 
 logger = logging.getLogger(__name__)
+
+MAX_TOOL_TURNS = 5  # Hard cap on recursive tool turns per conversation
 
 class AnthropicProvider(BaseLLMProvider):
     """Anthropic API provider implementation with Files API for PDFs and web search."""
@@ -183,86 +186,32 @@ class AnthropicProvider(BaseLLMProvider):
             })
             print(f"🖥️ [BASH] Bash tool registered for code execution")
         
-        # Add MCP tools
+        # Add MCP tools - no longer registering evaluate_expression directly
+        # Will be handled through mcp_generic_math with fallback logic
+        
+        # Add a single versatile math tool for difficult numerical calculations
         if self._mcp_client:
-            for tool_name in self._mcp_client.get_available_tools():
-                tool_schema = self._mcp_client.get_tool_schema(tool_name)
-                if tool_schema:
-                    # Create proper input schema for common math tools
-                    input_schema = {"type": "object", "properties": {}}
-                    
-                    # Define schemas for common math tools
-                    if tool_name == "add":
-                        input_schema = {
+            versatile_tool_schema = {
+                "name": "mcp_generic_math",
+                "description": "Interface to call advanced numerical MCP math tools for difficult calculations",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "tool": {
+                            "type": "string",
+                            "enum": ["solve_equation", "differentiate", "integrate", "definite_integral", "matrix_multiply", 
+                                    "matrix_determinant", "matrix_inverse", "linear_regression", "factorial", "combination", "permutation"],
+                            "description": "Name of the advanced numerical MCP math tool to invoke for difficult calculations."
+                        },
+                        "args": {
                             "type": "object",
-                            "properties": {
-                                "a": {"type": "number", "description": "First number"},
-                                "b": {"type": "number", "description": "Second number"}
-                            },
-                            "required": ["a", "b"]
+                            "description": "Arguments object to pass directly to the chosen MCP tool."
                         }
-                    elif tool_name == "subtract":
-                        input_schema = {
-                            "type": "object", 
-                            "properties": {
-                                "a": {"type": "number", "description": "First number"},
-                                "b": {"type": "number", "description": "Second number"}
-                            },
-                            "required": ["a", "b"]
-                        }
-                    elif tool_name == "multiply":
-                        input_schema = {
-                            "type": "object",
-                            "properties": {
-                                "a": {"type": "number", "description": "First number"},
-                                "b": {"type": "number", "description": "Second number"}
-                            },
-                            "required": ["a", "b"]
-                        }
-                    elif tool_name == "divide":
-                        input_schema = {
-                            "type": "object",
-                            "properties": {
-                                "a": {"type": "number", "description": "Numerator"},
-                                "b": {"type": "number", "description": "Denominator"}
-                            },
-                            "required": ["a", "b"]
-                        }
-                    elif tool_name == "power":
-                        input_schema = {
-                            "type": "object",
-                            "properties": {
-                                "base": {"type": "number", "description": "Base number"},
-                                "exponent": {"type": "number", "description": "Exponent"}
-                            },
-                            "required": ["base", "exponent"]
-                        }
-                    elif tool_name == "square_root":
-                        input_schema = {
-                            "type": "object",
-                            "properties": {
-                                "number": {"type": "number", "description": "Number to find square root of"}
-                            },
-                            "required": ["number"]
-                        }
-                    elif tool_name == "factorial":
-                        input_schema = {
-                            "type": "object",
-                            "properties": {
-                                "n": {"type": "number", "description": "Number to calculate factorial of"}
-                            },
-                            "required": ["n"]
-                        }
-                    
-                    tools.append({
-                        "name": f"mcp_{tool_name}",
-                        "description": tool_schema.get("description", f"MCP math tool: {tool_name}"),
-                        "input_schema": input_schema
-                    })
-                    # Only log tool registration if debug logging is enabled
-                    if logger.isEnabledFor(logging.DEBUG):
-                        print(f"🧮 [MCP] Registered MCP tool: {tool_name}")
-                        print(f"🔍 [DEBUG] {tool_name} input schema: {input_schema}")
+                    },
+                    "required": ["tool", "args"]
+                }
+            }
+            tools.append(versatile_tool_schema)
         
         # Try with tools first, then fallback if needed
         web_search_attempted = False
@@ -285,7 +234,7 @@ class AnthropicProvider(BaseLLMProvider):
                     message = self.client.messages.create(**message_params)
 
                 # Handle tool use conversation if needed
-                return self._handle_tool_use_conversation(message, message_params, pdf_path)
+                return self._handle_tool_use_conversation(message, message_params, pdf_path, tool_turn_count=0)
             except Exception as e:
                 # Some newer Anthropic SDK versions raise an exception for long / large
                 # requests and recommend using streaming mode instead. In that case we
@@ -351,7 +300,7 @@ class AnthropicProvider(BaseLLMProvider):
                 message = self.client.messages.create(**message_params)
 
             # Handle tool use conversation if needed (fallback might still have tools)
-            return self._handle_tool_use_conversation(message, message_params, pdf_path)
+            return self._handle_tool_use_conversation(message, message_params, pdf_path, tool_turn_count=0)
         except Exception as e:
             err_msg = str(e).lower()
             if "streaming is strongly recommended" in err_msg or "with_streaming_response" in err_msg or "long-requests" in err_msg:
@@ -390,7 +339,7 @@ class AnthropicProvider(BaseLLMProvider):
                     raise stream_err
             raise
     
-    def _handle_tool_use_conversation(self, message, message_params, pdf_path):
+    def _handle_tool_use_conversation(self, message, message_params, pdf_path, tool_turn_count: int = 0):
         """Handle tool use conversation flow properly."""
         # Check if there are any tool use blocks in the response
         tool_use_blocks = []
@@ -416,16 +365,28 @@ class AnthropicProvider(BaseLLMProvider):
             
             print(f"🔧 [TOOL] Executing tool: {tool_name} with input: {tool_input}")
             
-            if tool_name.startswith('mcp_'):
-                # Handle MCP tool calls
-                actual_tool_name = tool_name[4:]  # Remove 'mcp_' prefix
-                print(f"🧮 [MCP] Claude is using MCP tool: {actual_tool_name} with input: {tool_input}")
+            if tool_name == 'mcp_generic_math':
+                # Generic math router with fallback for simple expressions
+                requested_tool = tool_input.get('tool')
+                requested_args = tool_input.get('args', {})
                 
-                if self._mcp_client:
-                    result = self._mcp_client.call_tool(actual_tool_name, tool_input)
+                # Check if this is a simple expression call to evaluate_expression
+                if requested_tool == 'evaluate_expression' and 'expression' in requested_args:
+                    expression = requested_args['expression']
+                    # Simple expression regex: only digits, +, -, ×, ÷, ^, sqrt, ≤ 15 chars
+                    simple_expr_pattern = r'^[0-9+\-×÷^√\s\(\)\.]{1,15}$'
+                    if re.match(simple_expr_pattern, expression):
+                        print(f"🧮 [MCP] Ignoring simple expression call: {expression} (should be handled by LLM)")
+                        # Don't add to tool_results, effectively ignoring this tool call
+                        # This prevents incrementing tool_turn_count for simple expressions
+                        continue
+                
+                print(f"🧮 [MCP] Generic math tool routing to: {requested_tool} with args {requested_args}")
+
+                if self._mcp_client and requested_tool:
+                    result = self._mcp_client.call_tool(requested_tool, requested_args)
                     if result and result.get('success'):
                         tool_result = result.get('result', '')
-                        print(f"📊 [MCP] Tool result: {tool_result}")
                         tool_results.append({
                             "tool_use_id": tool_use_id,
                             "type": "tool_result",
@@ -433,14 +394,20 @@ class AnthropicProvider(BaseLLMProvider):
                         })
                     else:
                         error_msg = result.get('error', 'Unknown error') if result else 'No response'
-                        print(f"❌ [MCP] Tool failed: {error_msg}")
                         tool_results.append({
                             "tool_use_id": tool_use_id,
                             "type": "tool_result",
                             "content": f"Error: {error_msg}",
                             "is_error": True
                         })
-                        
+                else:
+                    tool_results.append({
+                        "tool_use_id": tool_use_id,
+                        "type": "tool_result",
+                        "content": "MCP client not available or tool not specified",
+                        "is_error": True
+                    })
+
             elif tool_name == 'bash':
                 # Handle bash tool calls
                 command = tool_input.get('command', '')
@@ -474,7 +441,42 @@ class AnthropicProvider(BaseLLMProvider):
         
         # If we have tool results, continue the conversation
         if tool_results:
-            print(f"🔄 [TOOL] Continuing conversation with {len(tool_results)} tool results")
+            # Stop if the maximum number of tool turns has been reached
+            if tool_turn_count >= MAX_TOOL_TURNS - 1:
+                print(f"🛑 Max tool turns ({MAX_TOOL_TURNS}) reached. Forcing final answer generation.")
+                
+                # Build the conversation history
+                conversation_messages = message_params["messages"].copy()
+                conversation_messages.append({"role": "assistant", "content": message.content})
+                conversation_messages.append({"role": "user", "content": tool_results})
+                
+                # Add a final instruction to generate a response without tools
+                conversation_messages.append({
+                    "role": "user",
+                    "content": "TOOL_LIMIT_REACHED – Please provide your final answer using the tool results above. Do not call any more tools."
+                })
+                
+                # Create new message params for the follow-up, but WITHOUT tools
+                final_answer_params = {
+                    "model": self.model,
+                    "max_tokens": self.max_tokens,
+                    "temperature": self.temperature,
+                    "messages": conversation_messages
+                }
+                
+                if self.system:
+                    final_answer_params["system"] = self.system
+
+                # Generate the final response without allowing any more tool calls
+                if pdf_path and not self.proxy_mode:
+                    final_answer_params["betas"] = ["files-api-2025-04-14"]
+                    final_message = self.client.beta.messages.create(**final_answer_params)
+                else:
+                    final_message = self.client.messages.create(**final_answer_params)
+                
+                return self._extract_text_from_response(final_message)
+
+            print(f"🔄 [TOOL] Continuing conversation with {len(tool_results)} tool results (turn {tool_turn_count + 1})")
             
             # Build the conversation history
             conversation_messages = message_params["messages"].copy()
@@ -493,7 +495,7 @@ class AnthropicProvider(BaseLLMProvider):
                 follow_up_message = self.client.messages.create(**follow_up_params)
             
             # Recursively handle any additional tool calls
-            return self._handle_tool_use_conversation(follow_up_message, follow_up_params, pdf_path)
+            return self._handle_tool_use_conversation(follow_up_message, follow_up_params, pdf_path, tool_turn_count + 1)
         
         # No tool results, return the text
         return self._extract_text_from_response(message)

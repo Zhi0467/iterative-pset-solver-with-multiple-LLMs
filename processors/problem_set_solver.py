@@ -168,8 +168,10 @@ class ProblemSetSolver:
                 ## Problem-Specific Approaches
 
                 ### For Mathematical Problems:
-                - Use MCP math tools for calculations when helpful
-                - Show key steps clearly and concisely, and present final answers prominently
+                - **Only use MCP tools for calculus, symbolic algebra, matrices, roots of high-degree polynomials, etc.**
+                - **Perform ordinary arithmetic (add/subtract/multiply/divide/simple roots, decimal evaluation) yourself.**
+                - For complex calculations (e.g., integrals, derivatives, matrices), use the `mcp_generic_math` tools.
+                - **CRITICAL: You have a MAX_TOOL_TURNS limit of 5. Excessive tool calls will invalidate your answer.**
 
                 ### For Coding Problems:
                 **EFFICIENT WORKFLOW:**
@@ -179,8 +181,6 @@ class ProblemSetSolver:
                 4. **Present Cleanly**: Include only the final, working solution
 
                 **CODING STANDARDS:**
-                - Write clean, readable code with appropriate comments
-                - Be modular if the problem is complicated and use readable variable names.
                 - Include only essential functionality (avoid over-engineering)
                 - Present the final solution without showing debugging steps
 
@@ -201,7 +201,6 @@ class ProblemSetSolver:
                 ## Quality Standards
 
                 ### DO:
-                - Be concise and direct
                 - Use tools for verification, not for showing work
                 - Present clean, final solutions
                 - Test code before presenting it
@@ -230,8 +229,9 @@ class ProblemSetSolver:
                 **MINIMIZE TOOL CALLS:**
                 - Plan your approach before using tools
                 - Combine multiple operations in single bash commands where possible
-                - Avoid repeated identical commands
-                - Use tools strategically for verification, not exploration
+                - Use tools strategically for verification, not exploration.
+                - **For math, only use tools for complex calculations - NOT simple arithmetic.**
+                - **Remember: MAX_TOOL_TURNS limit is 5. Excessive tool calls will invalidate your answer.**
 
                 **CRITICAL: Solve ALL problems in the PDF efficiently. Quality over quantity.**
                 **REMEMBER: Tools are for YOUR internal use only. Present clean, final solutions.**
@@ -308,10 +308,13 @@ class ProblemSetSolver:
                 ## Verification Approach
 
                 ### For Mathematical Problems:
-                - Use MCP math tools to verify calculations
+                - **Only use MCP tools for calculus, symbolic algebra, matrices, roots of high-degree polynomials, etc.**
+                - **Perform ordinary arithmetic (add/subtract/multiply/divide/simple roots, decimal evaluation) yourself.**
+                - Use MCP math tools to verify complex calculations only
                 - Check mathematical reasoning and logic
                 - Verify that final answers are correct
                 - Check for proper mathematical notation and formatting
+                - **CRITICAL: You have a MAX_TOOL_TURNS limit of 5. Excessive tool calls will invalidate your answer.**
 
                 ### For Coding Problems:
                 **VERIFICATION WORKFLOW:**
@@ -535,7 +538,7 @@ class ProblemSetSolver:
                 
                 IMPORTANT: Generate ONLY the LaTeX body content for the exercises. Do NOT include a preamble, \documentclass, \begin{document}, or \end{document} tags.
                 Start directly with the first \section*{{Exercise...}}.
-
+                
                 ### Original Problem Set
                 {final_input_data}
                 """

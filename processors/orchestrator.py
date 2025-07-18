@@ -186,10 +186,9 @@ CRITICAL: Ensure your output is a single, valid JSON object and nothing else.
         Create an execution plan following these rules:
 
         1. Provider Duo Selection:
-           - For math/physics: prefer ("gemini", "anthropic")
-           - For mixed content/coding: use ("anthropic", "gemini")
            - If has_figures is False: use ("gemini", "deepseek")
            - For simple tasks, use ("openai", "openai")
+           - For all other cases, use ("gemini", "anthropic") or ("anthropic", "gemini"), pick by discretion.
 
         2. Rounds:
            - High School: 1 round
