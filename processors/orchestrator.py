@@ -97,6 +97,8 @@ class Orchestrator:
 
         provider_config = self.config.get_provider_config(LLMConfig.PROVIDER_OPENAI)
         # Use the highest quality GPT-4 or GPT-4o model for planning
+        provider_config['model'] = provider_config.get('model', 'gpt-4o')
+        provider_config['temperature'] = 0.2  # Low temperature for deterministic planning
 
         return OpenAIProvider(api_key=api_key, **provider_config)
     
@@ -112,9 +114,20 @@ class Orchestrator:
         
         return OpenAIProvider(api_key=api_key, **provider_config)
     
-    def _get_analysis_prompt(self, pdf_path: str) -> str:
-        """Generate the prompt for PDF analysis."""
-        return f"""Analyze the attached PDF problem set and return a JSON object with the following information:
+    def _get_analysis_prompt(self, pdf_path: str, error_history: List[str] = None) -> str:
+        """Generate the prompt for PDF analysis, with optional error correction."""
+        
+        correction_prompt = ""
+        if error_history:
+            correction_prompt = f"""
+You have failed on previous attempts. Please correct your mistakes and try again.
+
+PREVIOUS ERRORS:
+{"".join([f"- {e}\\n" for e in error_history])}
+CRITICAL: Ensure your output is a single, valid JSON object and nothing else.
+"""
+
+        return f"""{correction_prompt}Analyze the attached PDF problem set and return a JSON object with the following information:
         
         1. subject: The main subject area (one of: "Mathematics", "Physics", "Computer Science", "Humanities", "Theory", "Mixed")
         2. topics: List of specific topics covered
@@ -140,9 +153,20 @@ class Orchestrator:
         }}
         """
     
-    def _get_strategist_prompt(self, analysis: PDFAnalysis) -> str:
-        """Generate the prompt for creating an execution plan."""
-        return f"""You are an expert AI Workflow Strategist. Create an optimal execution plan for solving this problem set.
+    def _get_strategist_prompt(self, analysis: PDFAnalysis, error_history: List[str] = None) -> str:
+        """Generate the prompt for creating an execution plan, with optional error correction."""
+
+        correction_prompt = ""
+        if error_history:
+            correction_prompt = f"""
+You have failed on previous attempts. Please correct your mistakes and try again.
+
+PREVIOUS ERRORS:
+{"".join([f"- {e}\\n" for e in error_history])}
+CRITICAL: Ensure your output is a single, valid JSON object and nothing else.
+"""
+
+        return f"""{correction_prompt}You are an expert AI Workflow Strategist. Create an optimal execution plan for solving this problem set.
 
         Problem Set Analysis:
         ```json
@@ -164,7 +188,6 @@ class Orchestrator:
         1. Provider Duo Selection:
            - For math/physics: prefer ("gemini", "anthropic")
            - For coding/algorithms: prefer ("anthropic", "openai")
-           - For theory/writing: prefer ("deepseek", "gemini")
            - For mixed content: use ("anthropic", "gemini")
 
         2. Rounds:
@@ -173,8 +196,8 @@ class Orchestrator:
            - Graduate/Research: 3 rounds
 
         3. Temperature:
-           - Solver: 0.6-0.8 (higher for creative/open-ended problems)
-           - Verifier: 0.1-0.3 (always low for accuracy)
+           - Solver: 0.0-0.5 (lower for math/physics)
+           - Verifier: 0.0-0.2 (always low for accuracy)
 
         4. Web Search:
            - Enable if requires_current_info is true
@@ -196,77 +219,103 @@ class Orchestrator:
     
     def _analyze_pdf(self, pdf_path: str) -> PDFAnalysis:
         """
-        Analyze a PDF using the analyst LLM.
-        
-        Args:
-            pdf_path: Path to the PDF file
-            
-        Returns:
-            PDFAnalysis object containing the analysis results
+        Analyze a PDF using the analyst LLM, with self-correcting retries.
         """
         print(f"📊 Analyzing PDF: {os.path.basename(pdf_path)}")
         
-        prompt = self._get_analysis_prompt(pdf_path)
-        try:
-            response = self.analyst_llm.generate(prompt, pdf_path=pdf_path)
-            data = json.loads(response)
-            
-            return PDFAnalysis(
-                pdf_path=pdf_path,
-                subject=Subject(data['subject']),
-                topics=data['topics'],
-                estimated_difficulty=Difficulty(data['estimated_difficulty']),
-                requires_current_info=data['requires_current_info'],
-                has_code=data['has_code'],
-                has_math=data['has_math'],
-                has_theory=data['has_theory'],
-                word_count=data['word_count']
-            )
-        except Exception as e:
-            print(f"⚠️ Error analyzing {pdf_path}: {e}")
-            # Fallback to safe defaults
-            return PDFAnalysis(
-                pdf_path=pdf_path,
-                subject=Subject.MIXED,
-                topics=["Unknown"],
-                estimated_difficulty=Difficulty.UNDERGRADUATE,
-                requires_current_info=True,  # Better safe than sorry
-                has_code=True,
-                has_math=True,
-                has_theory=True,
-                word_count=0
-            )
+        max_retries = 3
+        error_history = []
+
+        for attempt in range(max_retries):
+            prompt = self._get_analysis_prompt(pdf_path, error_history=error_history)
+            try:
+                print(f"  Attempt {attempt + 1} of {max_retries}...")
+                response = self.analyst_llm.generate(prompt, pdf_path=pdf_path)
+                data = json.loads(response)
+                
+                if 'subject' not in data or 'estimated_difficulty' not in data:
+                     raise ValueError("Received incomplete analysis data from LLM (missing required fields).")
+
+                return PDFAnalysis(
+                    pdf_path=pdf_path,
+                    subject=Subject(data['subject']),
+                    topics=data.get('topics', ["Unknown"]),
+                    estimated_difficulty=Difficulty(data['estimated_difficulty']),
+                    requires_current_info=data.get('requires_current_info', False),
+                    has_code=data.get('has_code', True),
+                    has_math=data.get('has_math', True),
+                    has_theory=data.get('has_theory', True),
+                    word_count=data.get('word_count', 0)
+                )
+            except (json.JSONDecodeError, ValueError) as e:
+                error_message = f"Error: {e}. Response was: {response[:500]}"
+                error_history.append(error_message)
+                print(f"  ⚠️ Attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    print("  Retrying with error context...")
+                else:
+                    print(f"  ❌ Failed to analyze {pdf_path} after {max_retries} attempts.")
+            except Exception as e:
+                print(f"  An unexpected error occurred during PDF analysis: {e}")
+                break
+
+        # Fallback to safe defaults
+        print("  Falling back to default analysis.")
+        return PDFAnalysis(
+            pdf_path=pdf_path,
+            subject=Subject.MIXED,
+            topics=["Unknown"],
+            estimated_difficulty=Difficulty.UNDERGRADUATE,
+            requires_current_info=True,
+            has_code=True,
+            has_math=True,
+            has_theory=True,
+            word_count=0
+        )
     
     def _create_execution_plan(self, analysis: PDFAnalysis) -> ExecutionPlan:
         """
-        Create an execution plan based on PDF analysis.
-        
-        Args:
-            analysis: PDFAnalysis object
-            
-        Returns:
-            ExecutionPlan dictionary with configuration parameters
+        Create an execution plan based on PDF analysis, with self-correcting retries.
         """
         print(f"🎯 Creating execution plan for: {os.path.basename(analysis.pdf_path)}")
         
-        prompt = self._get_strategist_prompt(analysis)
-        try:
-            response = self.strategist_llm.generate(prompt)
-            plan = json.loads(response)
-            return plan
-        except Exception as e:
-            print(f"⚠️ Error creating plan for {analysis.pdf_path}: {e}")
-            # Fallback to safe defaults
-            return {
-                "pdf_path": analysis.pdf_path,
-                "solver_provider": "anthropic",
-                "verifier_provider": "gemini",
-                "rounds": 2,
-                "solver_temperature": 0.7,
-                "verifier_temperature": 0.2,
-                "enable_web_search": True,  # Better safe than sorry
-                "analysis_summary": "Using safe defaults due to planning error."
-            }
+        max_retries = 3
+        error_history = []
+        
+        for attempt in range(max_retries):
+            prompt = self._get_strategist_prompt(analysis, error_history=error_history)
+            try:
+                print(f"  Attempt {attempt + 1} of {max_retries}...")
+                response = self.strategist_llm.generate(prompt)
+                plan = json.loads(response)
+
+                if not plan or 'pdf_path' not in plan:
+                    raise ValueError("Received incomplete or empty plan from LLM.")
+                return plan
+            except (json.JSONDecodeError, ValueError) as e:
+                error_message = f"Error: {e}. Response was: {response[:500]}"
+                error_history.append(error_message)
+                print(f"  ⚠️ Attempt {attempt + 1} failed: {e}")
+                if attempt < max_retries - 1:
+                    print("  Retrying with error context...")
+                else:
+                    print(f"  ❌ Failed to create plan for {analysis.pdf_path} after {max_retries} attempts.")
+            except Exception as e:
+                print(f"  An unexpected error occurred during plan creation: {e}")
+                break
+
+        # Fallback to safe defaults if all retries fail
+        print("  Falling back to default execution plan.")
+        return {
+            "pdf_path": analysis.pdf_path,
+            "solver_provider": "anthropic",
+            "verifier_provider": "gemini",
+            "rounds": 2,
+            "solver_temperature": 0.1,
+            "verifier_temperature": 0.0,
+            "enable_web_search": True,
+            "analysis_summary": "Using safe defaults due to a planning failure."
+        }
     
     def run(self) -> None:
         """
