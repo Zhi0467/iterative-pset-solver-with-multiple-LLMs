@@ -9,6 +9,7 @@ from google.genai.errors import ServerError as GeminiServerError
 
 from utils.config import LLMConfig
 from utils.pdf_extractor import AdvancedPDFExtractor
+from processors.summarizer import OutputSummarizer
 from llm_providers.openai_provider import OpenAIProvider
 from llm_providers.anthropic_provider import AnthropicProvider
 from llm_providers.gemini_provider import GeminiProvider
@@ -43,11 +44,16 @@ class ProblemSetSolver:
                  solver_provider: str = "gemini", 
                  verifier_provider: str = "anthropic",
                  pdf_mode: PDFMode = PDFMode.DIRECT_UPLOAD,
-                 rounds: int = 2):
+                 rounds: int = 2,
+                 memory_manager = None):
         self.config = LLMConfig()
         self.pdf_mode = pdf_mode
         self.rounds = rounds
         self.solve_complete = False
+        self.memory_manager = memory_manager if memory_manager and self.config.is_memory_enabled() else None
+        self.solver_provider_name = solver_provider
+        self.verifier_provider_name = verifier_provider
+        self.summarizer = OutputSummarizer() if self.memory_manager else None
         self.pdf_extractor = AdvancedPDFExtractor()
         
         if pdf_mode == PDFMode.TEXT_EXTRACT:
@@ -111,13 +117,40 @@ class ProblemSetSolver:
             print("🤖 Prompting Solver LLM to generate solutions...")
             print(f"Using solver: {self.solver.get_name()}")
 
+            # Get session memory for solver lessons if available
+            solver_context = ""
+            if self.memory_manager:
+                recent_lessons = self.memory_manager.get_recent_session_lessons(2)
+                if recent_lessons:
+                    # Extract solver-relevant lessons
+                    lesson_lines = recent_lessons.split('\n')
+                    solver_lessons = []
+                    capture = False
+                    for line in lesson_lines:
+                        if "SOLVER LESSONS" in line:
+                            capture = True
+                            continue
+                        elif capture and ("VERIFIER LESSONS" in line or "SYSTEM LESSONS" in line or "ORCHESTRATOR LESSONS" in line):
+                            break
+                        elif capture and line.strip():
+                            solver_lessons.append(line.strip())
+                    
+                    if solver_lessons:
+                        solver_context = f"""
+### Previous Session Learnings:
+{chr(10).join(solver_lessons[:3])}
+
+Apply these insights to your problem-solving approach.
+
+"""
+
             solver_supports_pdf = self.solver.supports_pdf_upload
             pdf_path_arg = None
             
             if is_pdf_path and solver_supports_pdf:
-                prompt = """
+                prompt = f"""
                 You are an expert mathematician, programmer, scientist, and problem solver.
-                
+                {solver_context}
                 INSTRUCTIONS:
                 1. Read through the entire PDF to identify ALL problems/exercises, including both mathematical and coding problems.
                 2. For EACH problem found, provide a complete solution
@@ -140,6 +173,7 @@ class ProblemSetSolver:
 
                 prompt = f"""
                 You are an expert mathematician, scientist, and problem solver.
+                {solver_context}
                 Please solve ALL problems from the following problem set with detailed, step-by-step explanations for each problem.
                 Make sure to identify each individual problem/exercise and provide a complete solution for every single one.
                 Include both mathematical problems and coding problems if present.
@@ -256,12 +290,50 @@ class ProblemSetSolver:
                 raise
         return _generate()
 
-    def verify_solutions(self, original_input: Union[str, List[str]], solution_text: str, is_pdf_path: bool = False, hints: Optional[str] = None) -> str:
+    def verify_solutions(self, original_input: Union[str, List[str]], solution_text: str, is_pdf_path: bool = False, hints: Optional[str] = None, pdf_path: str = None) -> str:
         """Asks the verifier LLM to check the solutions for mistakes."""
         @self._get_retry_decorator()
         def _verify():
             print("🕵️ Asking Verifier LLM to check the solutions...")
             print(f"Using verifier: {self.verifier.get_name()}")
+            
+            # Get session memory for verifier lessons if available
+            verifier_context = ""
+            if self.memory_manager:
+                recent_lessons = self.memory_manager.get_recent_session_lessons(2)
+                if recent_lessons:
+                    # Extract verifier-relevant lessons
+                    lesson_lines = recent_lessons.split('\n')
+                    verifier_lessons = []
+                    capture = False
+                    for line in lesson_lines:
+                        if "VERIFIER LESSONS" in line:
+                            capture = True
+                            continue
+                        elif capture and ("SYSTEM LESSONS" in line or "ORCHESTRATOR LESSONS" in line or "SOLVER LESSONS" in line):
+                            break
+                        elif capture and line.strip():
+                            verifier_lessons.append(line.strip())
+                    
+                    if verifier_lessons:
+                        verifier_context = f"""
+### Previous Session Verifier Insights:
+{chr(10).join(verifier_lessons[:3])}
+
+Apply these insights to your verification approach.
+
+"""
+            
+            # Get previous discussion context if available  
+            context = ""
+            if self.memory_manager and pdf_path:
+                full_context = self.memory_manager.get_discussion_context(pdf_path)
+                if full_context:
+                    # Extract just the last few key points for slim context
+                    lines = full_context.strip().split('\n')
+                    recent_lines = [line for line in lines[-8:] if line.strip() and not line.startswith('#')]
+                    if recent_lines:
+                        context = f"\n### Previous Context:\n{chr(10).join(recent_lines[-4:])}\n"
             
             # Check if verifier supports PDF uploads directly via the provider property
             verifier_supports_pdf = self.verifier.supports_pdf_upload
@@ -271,7 +343,7 @@ class ProblemSetSolver:
                 prompt = f"""
                 The attached PDF contains a problem set. Below are my drafted solutions.
                 Please review them against the original problems in the PDF and indicate any errors.
-                
+                {verifier_context}{context}
                 ### Proposed Solutions
                 {solution_text}
                 """
@@ -291,7 +363,7 @@ class ProblemSetSolver:
                 prompt = f"""
                 ### Original Problem Set
                 {final_input_data}
-
+                {verifier_context}{context}
                 ### Proposed Solutions
                 {solution_text}
                 """
@@ -402,11 +474,16 @@ class ProblemSetSolver:
                 raise
         return _verify()
 
-    def apply_fixes_and_regenerate(self, original_input: Union[str, List[str]], solution_text: str, fix_instructions: str, is_pdf_path: bool = False) -> str:
+    def apply_fixes_and_regenerate(self, original_input: Union[str, List[str]], solution_text: str, fix_instructions: str, is_pdf_path: bool = False, pdf_path: str = None) -> str:
         """Prompts the solver LLM to apply fixes and generate a new round of solutions."""
         @self._get_retry_decorator()
         def _regenerate():
             print("⚙️ Applying fixes and re-solving...")
+
+            # Get previous discussion context if available
+            context = ""
+            if self.memory_manager and pdf_path:
+                context = self.memory_manager.get_discussion_context(pdf_path)
 
             solver_supports_pdf = self.solver.supports_pdf_upload
             pdf_path_arg = None
@@ -439,6 +516,7 @@ class ProblemSetSolver:
                 """
                 
             prompt += f"""
+            {context}
             ### Original Solutions (in Markdown)
             {solution_text}
 
@@ -626,19 +704,49 @@ class ProblemSetSolver:
                     else:
                         draft_md = self.generate_initial_solutions(input_data, is_pdf_path, hints=hints)
                         self.save_output(draft_path, draft_md)
+                        
+                        # Track solver thoughts in memory
+                        if self.memory_manager and self.summarizer:
+                            solver_summary = self.summarizer.summarize_solver_output(
+                                draft_md, i + 1, self.solver_provider_name, is_initial=True
+                            )
+                            self.memory_manager.add_solver_thoughts(pdf_path, i + 1, self.solver_provider_name, solver_summary)
                     
                     if os.path.exists(review_path) and not initial_check:
                         with open(review_path, "r", encoding="utf-8") as f:
                             review = f.read()
                         print(f"📄 Existing review found at {review_path}, using it.")
                     else:
-                        review = self.verify_solutions(input_data, draft_md, is_pdf_path, hints=hints)
+                        review = self.verify_solutions(input_data, draft_md, is_pdf_path, hints=hints, pdf_path=pdf_path)
                         self.save_output(review_path, review)
+                        
+                        # Track verifier feedback in memory only for newly generated reviews
+                        if self.memory_manager and self.summarizer:
+                            verifier_summary = self.summarizer.summarize_verifier_output(
+                                review, i + 1, self.verifier_provider_name
+                            )
+                            self.memory_manager.add_verifier_feedback(pdf_path, i + 1, self.verifier_provider_name, verifier_summary)
                 else: 
-                    draft_md = self.apply_fixes_and_regenerate(input_data, draft_md, review, is_pdf_path)
+                    draft_md = self.apply_fixes_and_regenerate(input_data, draft_md, review, is_pdf_path, pdf_path=pdf_path)
                     self.save_output(draft_path, draft_md)
-                    review = self.verify_solutions(input_data, draft_md, is_pdf_path, hints=hints)
+                    
+                    # Track refined solver thoughts in memory
+                    if self.memory_manager and self.summarizer:
+                        solver_summary = self.summarizer.summarize_solver_output(
+                            draft_md, i + 1, self.solver_provider_name, is_initial=False
+                        )
+                        self.memory_manager.add_solver_thoughts(pdf_path, i + 1, self.solver_provider_name, solver_summary)
+                    
+                    review = self.verify_solutions(input_data, draft_md, is_pdf_path, hints=hints, pdf_path=pdf_path)
                     self.save_output(review_path, review)
+                    
+                    # Track verifier feedback in memory
+                    if self.memory_manager and self.summarizer:
+                        verifier_summary = self.summarizer.summarize_verifier_output(
+                            review, i + 1, self.verifier_provider_name
+                        )
+                        self.memory_manager.add_verifier_feedback(pdf_path, i + 1, self.verifier_provider_name, verifier_summary)
+                
                 # Break early if no mistakes found in review
                 if "final answer to all problems: no mistakes found" in review.lower():
                     print("✅ No mistakes found in review. Exiting iterative solving early.")
@@ -678,11 +786,26 @@ class ProblemSetSolver:
             
             if self.solve_complete:
                 print("\n🎉 Workflow completed successfully!")
+                
+                # Track successful completion in memory
+                if self.memory_manager:
+                    self.memory_manager.record_pdf_result(pdf_path, True)
+            else:
+                print("\n⚠️ Workflow completed with unresolved issues.")
+                
+                # Track partial completion in memory
+                if self.memory_manager:
+                    self.memory_manager.record_pdf_result(pdf_path, True)  # Still successful since LaTeX was generated
             
             return final_latex
 
         except Exception as e:
             print(f"\n❌ An error occurred during processing of {pdf_path}: {e}")
+            
+            # Track failure in memory
+            if self.memory_manager:
+                self.memory_manager.record_pdf_result(pdf_path, False, str(e), "processing")
+            
             return None
         finally:
             # Clear all file caches to free memory, but don't disconnect the shared MCP client.

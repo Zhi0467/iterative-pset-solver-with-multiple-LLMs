@@ -14,7 +14,8 @@ class ParallelProcessor:
                  pdf_paths: List[str], 
                  provider_duos: Union[Tuple[str, str], List[Tuple[str, str]]],
                  pdf_mode: PDFMode = PDFMode.DIRECT_UPLOAD,
-                 rounds: int = 2):
+                 rounds: int = 2,
+                 memory_manager = None):
         """
         Initialize the ParallelProcessor with multiple provider duos.
         
@@ -27,6 +28,7 @@ class ParallelProcessor:
         self.pdf_paths = pdf_paths
         self.pdf_mode = pdf_mode
         self.rounds = rounds
+        self.memory_manager = memory_manager
         
         # Handle both single duo and multiple duos
         if isinstance(provider_duos, tuple):
@@ -66,7 +68,8 @@ class ParallelProcessor:
                 solver_provider=solver_provider,
                 verifier_provider=verifier_provider,
                 pdf_mode=self.pdf_mode,
-                rounds=self.rounds
+                rounds=self.rounds,
+                memory_manager=self.memory_manager
             )
             # The process method returns the final LaTeX content
             latex_content = solver.process(pdf_path)

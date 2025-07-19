@@ -75,6 +75,9 @@ class LLMConfig:
             self.PROVIDER_DEEPSEEK: os.getenv("DEEPSEEK_API_KEY")
         }
         
+        # Global memory toggle
+        self.memory_enabled = os.getenv("MEMORY_ENABLED", "true").lower() in ("true", "1", "yes", "on")
+        
         # Default provider configurations
         self.provider_configs = {
             self.PROVIDER_OPENAI: {
@@ -242,3 +245,12 @@ class LLMConfig:
             "mcp": config.get("enable_mcp", False),
             "pdf_upload": True  # Most providers support PDF upload
         }
+    
+    def is_memory_enabled(self) -> bool:
+        """Check if memory system is enabled globally."""
+        return self.memory_enabled
+    
+    def set_memory_enabled(self, enabled: bool):
+        """Enable or disable memory system globally."""
+        self.memory_enabled = enabled
+        print(f"🧠 Memory system {'enabled' if enabled else 'disabled'} globally")

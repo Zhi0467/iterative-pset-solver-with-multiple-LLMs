@@ -1,108 +1,68 @@
 # Auto Pset Solver
 
-A command-line tool (`main.py`) to automatically solve problem sets (PDF files) using two iterative duos of LLMs:
-
-1. **Duo 1**: Solver = Anthropic, Verifier = Deepseek  
-2. **Duo 2**: Solver = Deepseek, Verifier = Anthropic
-
-By default, Duo 1 runs for **2 rounds**, and if any problems remain unsolved, Duo 2 runs for **2 rounds** as fallback.
-
----
+An intelligent command-line tool that automatically solves problem sets (PDF files) using an orchestrated workflow with multiple LLM providers. The system analyzes PDFs, creates optimal execution plans, and processes them using dynamically selected solver-verifier pairs.
 
 ## 🚀 Features
 
-- **Automatic duo logic**: Duo 1 attempts all problems; Duo 2 only runs on failures.
-- **PDF modes**:
-  - `direct_upload` (default): upload the full PDF to providers supporting file ingestion.
-  - `text_extract`: extract text via `AdvancedPDFExtractor` and send as text prompts.
-- **Web-search modes**:
-  - `default`: web search enabled for verification (Anthropic + Gemini), disabled for solving.
-  - `all_enabled`, `all_disabled`, `solver_only`, `verifier_only`.
-- **Retry & backoff**: handles transient API errors.
-- **Configurable providers**: set API keys and endpoints in `LLMConfig`.
+### Intelligent Orchestration
+- **Automatic PDF Analysis**: Analyzes subject, difficulty, topics, and content types
+- **Dynamic Provider Selection**: Chooses optimal solver-verifier pairs based on PDF characteristics  
+- **Parallel Processing**: Processes multiple PDFs concurrently for better performance
+- **Adaptive Strategies**: Adjusts rounds, temperatures, and web search based on complexity
 
----
+### LLM Integration
+- **Multi-Provider Support**: Anthropic Claude, Google Gemini, OpenAI GPT, DeepSeek
+- **PDF Processing Modes**: Direct upload or text extraction
+- **Code Execution**: Built-in code execution capabilities for coding problems
+- **Iterative Refinement**: Multi-round solve-verify-refine process
 
-## 🎛️ Installation
-
-```bash
-pip install auto-pset
-````
-
-Or clone and install editable:
-
-```bash
-git clone https://github.com/Zhi0467/iterative-pset-solver-with-multiple-LLMs.git
-cd iterative-pset-solver-with-multiple-LLMs
-pip install -e .
-```
-
----
+### Memory & Learning System
+- **Session Memory**: Tracks discussions, decisions, and outcomes across sessions
+- **Continuous Learning**: Generates actionable lessons for future sessions
+- **Discussion Tracking**: Per-PDF discussion files with solver-verifier interactions
+- **Pattern Recognition**: Identifies failure patterns and success strategies
 
 ## 📖 Usage
 
 ```bash
-python main.py <path_to_pdf> [pdf_mode] [web_search_mode]
+python main.py <path_to_pdf>
 ```
-
-* `<path_to_pdf>`: path to your PDF problem set.
-* `[pdf_mode]`: `direct_upload` (default) or `text_extract`.
-* `[web_search_mode]`: `default` (balanced), `all_enabled`, `all_disabled`, `solver_only`, or `verifier_only`.
 
 ### Examples
 
-1. **Quick run with defaults** (Duo 1 → Duo 2 if needed):
+**Basic usage**:
+```bash
+python main.py homework.pdf
+```
 
-   ```bash
-   python main.py hw.pdf
-   ```
-
-2. **Text-extraction mode**:
-
-   ```bash
-   python main.py hw.pdf text_extract
-   ```
-
-3. **Force all providers to search**:
-
-   ```bash
-   python main.py hw.pdf direct_upload all_enabled
-   ```
-
-4. **Disable web search completely**:
-
-   ```bash
-   python main.py hw.pdf direct_upload all_disabled
-   ```
-
-5. **Solver-only web search**:
-
-   ```bash
-   python main.py hw.pdf text_extract solver_only
-   ```
-
-> ⚠️ If after Duo 2 some problems remain unsolved, simply rerun the same command to process the leftovers.
+**Multiple PDFs**:
+```bash  
+python main.py hw1.pdf hw2.pdf hw3.pdf
+```
 
 ---
 
 ## ⚙️ Configuration
 
-Edit `~/utils/config.py` to customize your model selection, max tokens, and temperature.
+### Environment Setup
+Copy `.env.example` to `.env` and configure your API keys:
+```bash
+ANTHROPIC_API_KEY=your_key_here
+GOOGLE_API_KEY=your_key_here  
+OPENAI_API_KEY=your_key_here
+DEEPSEEK_API_KEY=your_key_here
+```
 
-Copy `~/.env.example` to `~/.env` to store your API keys. 
+### Recommended Settings
+- **MCP Integration**: Recommended to **disable** in current version (`DEFAULT_MCP = False`)  
+- **Code Execution**: Recommended to **enable** (`DEFAULT_CODE_EXECUTION = True`) - verifiers work better with code tools
+- **Memory System**: Optional feature (`MEMORY_ENABLED=true/false`) - shows no significant performance effect but useful for debugging
+- **Web Search**: Enable for Anthropic and Gemini providers for best results
 
----
-
-## 🛠️ Customization
-
-* **Change duo providers**: modify `solver1`, `verifier1`, `solver2`, `verifier2` in `main.py`.
-* **Adjust rounds**: change the `rounds=2` parameter when constructing `ProblemSetSolver` instances.
-* **Add new PDF modes**: update `PDFMode` enum and parsing logic in `main.py`.
+Configure these settings in `utils/config.py` or via environment variables.
 
 ---
 
 ## ⚖️ Disclaimer
 
 For **personal educational use**. Respect academic integrity and copyright.
-
-
