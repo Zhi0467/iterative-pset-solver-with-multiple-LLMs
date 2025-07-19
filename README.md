@@ -1,5 +1,6 @@
 # Auto Pset Solver
 
+
 An intelligent command-line tool that automatically solves problem sets (PDF files) using an orchestrated workflow of multiple LLM providers. The system analyzes each PDF to determine the optimal solver-verifier pair and execution strategy.
 
 ## 🚀 Features
@@ -21,23 +22,27 @@ An intelligent command-line tool that automatically solves problem sets (PDF fil
 - **Google Gemini**: Visual processing and multimodal understanding
 - **DeepSeek**: Cost-effective solving and verification
 
-### ⚡ Parallel Processing
-- **Batch Processing**: Handle multiple PDFs simultaneously
-- **Provider Optimization**: Different provider pairs for different problem types
-- **Intelligent Fallbacks**: Automatic retry with alternative strategies
 
----
+### Intelligent Orchestration
+- **Automatic PDF Analysis**: Analyzes subject, difficulty, topics, and content types
+- **Dynamic Provider Selection**: Chooses optimal solver-verifier pairs based on PDF characteristics  
+- **Parallel Processing**: Processes multiple PDFs concurrently for better performance
+- **Adaptive Strategies**: Adjusts rounds, temperatures, and web search based on complexity
 
-## 🎛️ Prerequisites
 
-Set up your API keys by creating a `.env` file based on `.env_example`:
+### LLM Integration
+- **Multi-Provider Support**: Anthropic Claude, Google Gemini, OpenAI GPT, DeepSeek
+- **PDF Processing Modes**: Direct upload or text extraction
+- **Code Execution**: Built-in code execution capabilities for coding problems
+- **Iterative Refinement**: Multi-round solve-verify-refine process
 
-```bash
-cp .env_example .env
-# Edit .env with your API keys
-```
 
----
+### Memory & Learning System
+- **Session Memory**: Tracks discussions, decisions, and outcomes across sessions
+- **Continuous Learning**: Generates actionable lessons for future sessions
+- **Discussion Tracking**: Per-PDF discussion files with solver-verifier interactions
+- **Pattern Recognition**: Identifies failure patterns and success strategies
+
 
 ## 📖 Usage
 
@@ -48,6 +53,7 @@ python main.py <pdf_path1> [pdf_path2] [pdf_path3] ...
 ```
 
 ### Examples
+
 
 **Single PDF processing**:
 ```bash
@@ -92,47 +98,27 @@ The [`parallel processor`](processors/parallel_processor.py) executes the plans 
 - **Concurrent Processing**: Multiple PDFs processed simultaneously with different provider configurations
 - **Tool Integration**: Each provider can access web search, mathematical computation servers, and secure code execution environments
 - **Intelligent Fallbacks**: If a provider fails, the system automatically retries with alternative configurations
-- **Result Aggregation**: Solutions are collected, formatted, and presented with LaTeX styling when available
+
 
 ---
 
 ## ⚙️ Configuration
 
-### Provider Settings
-
-Customize model selection, max tokens, and temperature in [`utils/config.py`](utils/config.py):
-
-```python
-class LLMConfig:
-    def get_provider_config(self, provider: str) -> Dict[str, Any]:
-        configs = {
-            'openai': {
-                'model': 'gpt-4o',
-                'max_tokens': 4000,
-                'temperature': 0.1
-            },
-            'anthropic': {
-                'model': 'claude-3-5-sonnet-20241022',
-                'max_tokens': 4000,
-                'temperature': 0.1
-            }
-            # ... more providers
-        }
+### Environment Setup
+Copy `.env.example` to `.env` and configure your API keys:
+```bash
+ANTHROPIC_API_KEY=your_key_here
+GOOGLE_API_KEY=your_key_here  
+OPENAI_API_KEY=your_key_here
+DEEPSEEK_API_KEY=your_key_here
 ```
 
-### Tool Configuration
+### Recommended Settings
+- **MCP Integration**: Recommended to **disable** in current version (`DEFAULT_MCP = False`)  
+- **Code Execution**: Recommended to **enable** (`DEFAULT_CODE_EXECUTION = True`) - verifiers work better with code tools
+- **Memory System**: Optional feature (`MEMORY_ENABLED=true/false`) - shows no significant performance effect but useful for debugging
+- **Web Search**: Enable for Anthropic and Gemini providers for best results
 
-Enable/disable tools in provider configurations:
-
-```python
-# In utils/config.py
-'anthropic': {
-    'enable_web_search': True,
-    'enable_mcp': True,           # Math tools via MCP
-    'enable_code_execution': True, # Code sandbox
-    'enable_bash_tool': True      # System commands
-}
-```
 
 ### Environment Variables
 
@@ -167,20 +153,11 @@ The system supports various API endpoints and configurations via environment var
 3. **PDF Processing**: Verify PDF files are readable and not password-protected
 4. **Memory Issues**: Large PDFs may require increased system memory
 
----
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Make your changes and add tests
-4. Submit a pull request
-
-See [`CLAUDE.md`](CLAUDE.md) for development guidance when working with Claude Code.
 
 ---
 
 ## ⚖️ Disclaimer
+
 
 For **personal educational use only**. Please respect academic integrity policies and copyright laws when using this tool.
 
