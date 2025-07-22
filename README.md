@@ -15,6 +15,7 @@ An intelligent command-line tool that automatically solves problem sets (PDF fil
 - **PDF Processing Modes**: Direct upload or text extraction
 - **Code Execution**: Built-in code execution capabilities for coding problems
 - **Iterative Refinement**: Multi-round solve-verify-refine process
+- **Prompt Caching**: Anthropic provider includes intelligent caching for 90% cost savings on repeated content
 
 ### Memory & Learning System
 - **Session Memory**: Tracks discussions, decisions, and outcomes across sessions
@@ -58,6 +59,7 @@ DEEPSEEK_API_KEY=your_key_here
 - **Code Execution**: Recommended to **enable** (`DEFAULT_CODE_EXECUTION = True`) - verifiers work better with code tools
 - **Memory System**: Optional feature (`MEMORY_ENABLED=true/false`) - shows no significant performance effect but useful for debugging
 - **Web Search**: Enable for Anthropic and Gemini providers for best results
+- **Prompt Caching**: Automatically enabled for Anthropic - caches tools, system messages, PDFs, and large text for cost optimization
 
 Configure these settings in `utils/config.py` or via environment variables.
 
