@@ -19,7 +19,7 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
-MAX_TOOL_TURNS = 5  # Hard cap on recursive tool turns per conversation
+MAX_TOOL_TURNS = 8  # Hard cap on recursive tool turns per conversation
 
 class AnthropicProvider(BaseLLMProvider):
     """Anthropic API provider implementation with Files API for PDFs and web search."""
@@ -51,7 +51,7 @@ class AnthropicProvider(BaseLLMProvider):
         else:
             self._web_search_available = False
         
-        # Initialize MCP client if enabled and available (using singleton)
+        # Initialize MCP client if enabled and available (isolated instance)
         self._mcp_client = None
         if self.enable_mcp and MCP_AVAILABLE and get_mcp_client:
             try:
@@ -123,7 +123,8 @@ class AnthropicProvider(BaseLLMProvider):
                         "type": "base64",
                         "media_type": "application/pdf",
                         "data": pdf_base64
-                    }
+                    },
+                    "cache_control": {"type": "ephemeral"}
                 })
             else:
                 # For direct mode, use Files API
@@ -141,19 +142,24 @@ class AnthropicProvider(BaseLLMProvider):
                     print(f"✅ PDF uploaded and cached with ID: {file_id}")
                 
                 content.append({
-                    "type": "document",
+                    "type": "document", 
                     "source": {
                         "type": "file",
                         "file_id": file_id
-                    }
+                    },
+                    "cache_control": {"type": "ephemeral"}
                 })
         
         # Add text prompts
         for prompt_text in prompts:
-            content.append({
+            text_content = {
                 "type": "text",
                 "text": str(prompt_text)
-            })
+            }
+            # Cache larger prompts (>500 chars) that are likely to be reused
+            if len(str(prompt_text)) > 500:
+                text_content["cache_control"] = {"type": "ephemeral"}
+            content.append(text_content)
         
         # Prepare message creation parameters
         message_params = {
@@ -163,9 +169,16 @@ class AnthropicProvider(BaseLLMProvider):
             "messages": [{"role": "user", "content": content}]
         }
         
-        # Add system message if provided
+        # Add system message if provided with cache control for prompt caching
         if self.system:
-            message_params["system"] = self.system
+            # System messages are ideal for caching as they're stable and reusable
+            message_params["system"] = [
+                {
+                    "type": "text",
+                    "text": self.system,
+                    "cache_control": {"type": "ephemeral"}
+                }
+            ]
         
         # Add tools (web search, code execution, MCP tools)
         tools = []
@@ -217,6 +230,9 @@ class AnthropicProvider(BaseLLMProvider):
         web_search_attempted = False
         if tools:
             try:
+                # Add cache control to tools for prompt caching - tool definitions are stable and reusable
+                for tool in tools:
+                    tool["cache_control"] = {"type": "ephemeral"}
                 message_params["tools"] = tools
                 if logger.isEnabledFor(logging.DEBUG):
                     print(f"🔧 Registered {len(tools)} tools: {[tool.get('name', tool.get('type', 'unknown')) for tool in tools]}")
@@ -553,8 +569,11 @@ class AnthropicProvider(BaseLLMProvider):
             self._sandbox.cleanup_session()
             print("🗑️ Cleaned up sandbox session")
         
-        # Note: MCP client is now shared singleton, so we don't disconnect it here
-        # The singleton will be cleaned up when the application exits
+        # Disconnect this instance's MCP client
+        if self._mcp_client:
+            self._mcp_client.disconnect()
+            self._mcp_client = None
+            print("🗑️ Disconnected MCP client")
     
     def get_available_models(self) -> Dict[str, Any]:
         """Returns a dictionary of available models for Anthropic."""
